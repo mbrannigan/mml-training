@@ -1,0 +1,83 @@
+services:
+  # Grafana - Visualization and dashboarding
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana-provisioning:/etc/grafana/provisioning
+    networks:
+      - lgtm
+
+  # Prometheus - Metrics scraper
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--storage.tsdb.retention.time=1h'  # Short retention, Mimir handles long-term
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - lgtm
+
+  # Mimir - Long-term metrics storage
+  mimir:
+    image: grafana/mimir:latest
+    container_name: mimir
+    ports:
+      - "9009:9009"
+    command:
+      - '-config.file=/etc/mimir/mimir.yaml'
+    volumes:
+      - ./mimir.yaml:/etc/mimir/mimir.yaml
+      - mimir-data:/data
+    networks:
+      - lgtm
+
+  # Loki - Log aggregation
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    ports:
+      - "3100:3100"
+    command:
+      - '-config.file=/etc/loki/loki.yaml'
+    volumes:
+      - ./loki.yaml:/etc/loki/loki.yaml
+      - loki-data:/loki
+    networks:
+      - lgtm
+
+  # Promtail - Log shipper for Loki
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+    volumes:
+      - ./promtail.yaml:/etc/promtail/promtail.yaml
+    command:
+      - '-config.file=/etc/promtail/promtail.yaml'
+    networks:
+      - lgtm
+
+volumes:
+  grafana-data:
+  prometheus-data:
+  mimir-data:
+  loki-data:
+
+networks:
+  lgtm:
+    driver: bridge

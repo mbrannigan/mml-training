@@ -1,0 +1,60 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Remote write to Mimir for long-term storage
+remote_write:
+  - url: http://mimir:9009/api/v1/push
+    headers:
+      X-Scope-OrgID: anonymous
+
+scrape_configs:
+  # Scrape Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Scrape Grafana
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+
+  # Scrape Loki
+  - job_name: 'loki'
+    static_configs:
+      - targets: ['loki:3100']
+
+  # Scrape Mimir
+  - job_name: 'mimir'
+    static_configs:
+      - targets: ['mimir:9009']
+
+  # Kubernetes API server (from host.docker.internal)
+  - job_name: 'kubernetes-apiservers'
+    kubernetes_sd_configs:
+      - role: endpoints
+        api_server: https://host.docker.internal:6443
+        tls_config:
+          insecure_skip_verify: true
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
+
+  # Kubernetes nodes
+  - job_name: 'kubernetes-nodes'
+    kubernetes_sd_configs:
+      - role: node
+        api_server: https://host.docker.internal:6443
+        tls_config:
+          insecure_skip_verify: true
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
+
+  # Kubernetes pods
+  - job_name: 'kubernetes-pods'
+    kubernetes_sd_configs:
+      - role: pod
+        api_server: https://host.docker.internal:6443
+        tls_config:
+          insecure_skip_verify: true
