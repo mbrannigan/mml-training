@@ -1,69 +1,117 @@
 # Phase 2: Kafka, JMX Exporter, Airflow & Zabbix
 
-This phase adds a data platform stack and traditional host monitoring to the LGTM observability environment built in Phase 1.
+This phase adds a data platform stack and traditional host monitoring to the LGTM observability environment built in Phase 1. All components deploy into the existing `lgtm` namespace in Kubernetes.
 
-## What's Deployed
+## Components
 
-| Component | Purpose | Metrics Port |
-|-----------|---------|-------------|
-| Kafka | Message broker | 7071 (JMX Exporter) |
-| ZooKeeper | Kafka coordination | - |
-| Airflow | Workflow orchestration | 9102 (StatsD Exporter) |
-| Zabbix | Host monitoring | 9224 (Zabbix Exporter) |
+| Manifest | Services Deployed | Metrics Port |
+|----------|------------------|--------------|
+| `zookeeper.yaml` | ZooKeeper | - |
+| `kafka.yaml` | Kafka + JMX Exporter (init container) | 7071 |
+| `statsd-exporter.yaml` | StatsD Exporter | 9102 |
+| `airflow.yaml` | Airflow standalone | 8080 (UI) |
+| `zabbix.yaml` | Zabbix DB, Server, Web, Agent (DaemonSet) | 8080 (UI) |
 
 ## Prerequisites
 
-- Phase 1 LGTM stack running (`kubectl get pods -n lgtm` - all Running)
-- Docker Desktop with **12GB RAM** minimum
-- Docker Compose
+Phase 1 must be running:
+```powershell
+kubectl get pods -n lgtm
+# All pods should be Running before proceeding
+```
 
-## Quick Start
+## Deploy
 
 ```powershell
 cd C:\mml-lab\mml-training\phase2
 
-# Download JMX Exporter JAR first (not in git)
-cd kafka
-Invoke-WebRequest -Uri "https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/0.20.0/jmx_prometheus_javaagent-0.20.0.jar" -OutFile "jmx_prometheus_javaagent-0.20.0.jar"
-cd ..
+# Deploy ConfigMaps first
+kubectl apply -f configmaps/
 
-# Start everything
-docker-compose up -d
+# Deploy services (order matters)
+kubectl apply -f zookeeper.yaml
+kubectl apply -f kafka.yaml
+kubectl apply -f statsd-exporter.yaml
+kubectl apply -f airflow.yaml
+kubectl apply -f zabbix.yaml
 ```
 
-## Service URLs
+Or all at once:
+```powershell
+kubectl apply -f configmaps/ && kubectl apply -f .
+```
+
+## Verify Pods
+
+```powershell
+kubectl get pods -n lgtm
+```
+
+Expected new pods:
+```
+airflow-xxx          1/1  Running
+kafka-xxx            1/1  Running
+statsd-exporter-xxx  1/1  Running
+zookeeper-xxx        1/1  Running
+zabbix-agent-xxx     1/1  Running   # DaemonSet
+zabbix-db-xxx        1/1  Running
+zabbix-server-xxx    1/1  Running
+zabbix-web-xxx       1/1  Running
+```
+
+## Service URLs (NodePort)
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| Airflow UI | http://localhost:8080 | admin / admin |
-| Zabbix UI | http://localhost:8090 | Admin / zabbix |
-| Kafka JMX metrics | http://localhost:7071/metrics | - |
-| StatsD metrics | http://localhost:9102/metrics | - |
-| Zabbix metrics | http://localhost:9224/metrics | - |
+| Airflow UI | http://localhost:30808 | admin / admin |
+| Zabbix UI | http://localhost:30809 | Admin / zabbix |
 
 ## Add Prometheus Scrape Jobs
 
-See `prometheus-phase2.yml` for the scrape job snippets to add to your Phase 1 Prometheus config.
+See `configmaps/prometheus-scrape-jobs.yaml` for the scrape job definitions. Add them to the Phase 1 Prometheus ConfigMap:
+
+```powershell
+kubectl edit configmap prometheus-config -n lgtm
+# Add the three scrape_configs jobs from configmaps/prometheus-scrape-jobs.yaml
+
+kubectl rollout restart deployment/prometheus -n lgtm
+```
+
+## Verify Metrics
+
+```promql
+# Kafka broker up
+up{job="kafka"}
+
+# Airflow scheduler
+up{job="airflow"}
+
+# Airflow tasks running
+airflow_scheduler_tasks_running
+```
 
 ## Directory Structure
 
 ```
 phase2/
-+-- docker-compose.yml          # All services
-+-- prometheus-phase2.yml       # Scrape jobs to add to Phase 1
-+-- kafka/
-|   +-- jmx-exporter-config.yml # JMX Exporter metric rules
-|   +-- README.md
-+-- airflow/
-|   +-- statsd-mapping.yml      # StatsD metric name mappings
-|   +-- README.md
-+-- zabbix/
-    +-- README.md
++-- README.md
++-- namespace.yaml
++-- zookeeper.yaml
++-- kafka.yaml
++-- statsd-exporter.yaml
++-- airflow.yaml
++-- zabbix.yaml
++-- configmaps/
+    +-- kafka-jmx-config.yaml
+    +-- statsd-mapping-config.yaml
+    +-- prometheus-scrape-jobs.yaml
 ```
 
-## Clean Up
+## Teardown
 
 ```powershell
-docker-compose down        # Stop services
-docker-compose down -v     # Stop + wipe volumes
+kubectl delete -f .
+kubectl delete -f configmaps/
 ```
+
+> This does NOT affect Phase 1 — components share the `lgtm` namespace but are managed by separate manifests.

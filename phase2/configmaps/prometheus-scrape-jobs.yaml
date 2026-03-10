@@ -1,0 +1,34 @@
+# Phase 2 Prometheus scrape jobs
+# Add these jobs to the existing phase1 prometheus-config ConfigMap:
+#   kubectl edit configmap prometheus-config -n lgtm
+# Then restart Prometheus:
+#   kubectl rollout restart deployment/prometheus -n lgtm
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-phase2-scrape-jobs
+  namespace: lgtm
+data:
+  phase2-jobs.yml: |
+    scrape_configs:
+
+      - job_name: 'kafka'
+        static_configs:
+          - targets: ['kafka.lgtm.svc.cluster.local:7071']
+        relabel_configs:
+          - target_label: component
+            replacement: kafka
+
+      - job_name: 'airflow'
+        static_configs:
+          - targets: ['statsd-exporter.lgtm.svc.cluster.local:9102']
+        relabel_configs:
+          - target_label: component
+            replacement: airflow
+
+      - job_name: 'zabbix-web'
+        static_configs:
+          - targets: ['zabbix-web.lgtm.svc.cluster.local:8080']
+        relabel_configs:
+          - target_label: component
+            replacement: zabbix
