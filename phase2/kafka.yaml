@@ -39,7 +39,6 @@ spec:
     spec:
       initContainers:
         - name: jmx-exporter-init
-          # curlimages/curl is more reliably available than busybox on kind
           image: curlimages/curl:8.5.0
           command:
             - sh
@@ -71,7 +70,8 @@ spec:
               value: "9999"
             - name: KAFKA_JMX_HOSTNAME
               value: "kafka"
-            - name: EXTRA_ARGS
+            # KAFKA_OPTS is the correct env var for cp-kafka javaagent flags
+            - name: KAFKA_OPTS
               value: "-javaagent:/jmx/jmx_prometheus_javaagent.jar=7071:/etc/jmx-exporter/config.yml"
           volumeMounts:
             - name: jmx-jar
