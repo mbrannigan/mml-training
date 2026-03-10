@@ -1,0 +1,35 @@
+# Phase 2 Prometheus scrape jobs
+# Patch this into the existing phase1 prometheus-config ConfigMap,
+# or apply as a separate ConfigMap and reference from prometheus.yaml
+#
+# These jobs use Kubernetes DNS - services are reachable as
+# <service-name>.<namespace>.svc.cluster.local
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-phase2-scrape-jobs
+  namespace: lgtm
+data:
+  phase2-jobs.yml: |
+    scrape_configs:
+
+      - job_name: 'kafka'
+        static_configs:
+          - targets: ['kafka.lgtm.svc.cluster.local:7071']
+        relabel_configs:
+          - target_label: component
+            replacement: kafka
+
+      - job_name: 'airflow'
+        static_configs:
+          - targets: ['statsd-exporter.lgtm.svc.cluster.local:9102']
+        relabel_configs:
+          - target_label: component
+            replacement: airflow
+
+      - job_name: 'zabbix-web'
+        static_configs:
+          - targets: ['zabbix-web.lgtm.svc.cluster.local:8080']
+        relabel_configs:
+          - target_label: component
+            replacement: zabbix
