@@ -1,0 +1,27 @@
+# Phase 2 Prometheus scrape jobs
+# Add these to the scrape_configs: section in your Phase 1 prometheus.yaml
+#
+# Location: phase1/k8s/configmaps/prometheus-config.yaml
+
+scrape_configs:
+
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['host.docker.internal:7071']
+    relabel_configs:
+      - target_label: component
+        replacement: kafka
+
+  - job_name: 'airflow'
+    static_configs:
+      - targets: ['host.docker.internal:9102']
+    relabel_configs:
+      - target_label: component
+        replacement: airflow
+
+  - job_name: 'zabbix'
+    static_configs:
+      - targets: ['host.docker.internal:9224']
+    relabel_configs:
+      - target_label: component
+        replacement: zabbix
