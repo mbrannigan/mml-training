@@ -18,12 +18,14 @@ data:
       - match: "airflow.scheduler.tasks.starving"
         name: "airflow_scheduler_tasks_starving"
 
-      - match: "airflow.dagrun.duration.success.*"
+      - match: "airflow.dagrun.duration.success.(.*)"
+        match_type: regex
         name: "airflow_dagrun_duration_success"
         labels:
           dag_id: "$1"
 
-      - match: "airflow.dagrun.duration.failed.*"
+      - match: "airflow.dagrun.duration.failed.(.*)"
+        match_type: regex
         name: "airflow_dagrun_duration_failed"
         labels:
           dag_id: "$1"
@@ -34,12 +36,14 @@ data:
         labels:
           operator: "$1"
 
-      - match: "airflow.operator_failures_*"
+      - match: "airflow.operator_failures_(.*)"
+        match_type: regex
         name: "airflow_operator_failures"
         labels:
           operator: "$1"
 
-      - match: "airflow.operator_successes_*"
+      - match: "airflow.operator_successes_(.*)"
+        match_type: regex
         name: "airflow_operator_successes"
         labels:
           operator: "$1"
