@@ -1,123 +1,129 @@
-# Phase 1: Core LGTM Stack
+# Kubernetes Manifests for LGTM Stack
 
-Foundational observability stack with Grafana, Prometheus, Mimir, Loki, and Promtail running in Docker Compose.
+This directory contains Kubernetes manifests to deploy the LGTM (Loki, Grafana, Tempo, Mimir) observability stack on Kubernetes.
 
-## What's Included
+## Overview
 
-- **Grafana** - Visualization and dashboarding (port 3000)
-- **Prometheus** - Metrics scraping (port 9090)
-- **Mimir** - Long-term metrics storage (port 9009)
-- **Loki** - Log aggregation (port 3100)
-- **Promtail** - Log collection from Docker containers
+The Kubernetes deployment mirrors the Docker Compose setup but adapts it for native Kubernetes operation:
 
-## Quick Start
+- **Namespace**: All resources are deployed in the `lgtm` namespace
+- **ConfigMaps**: Configuration files are stored as ConfigMaps
+- **Services**: Each component has a Kubernetes Service for service discovery
+- **Deployments**: Grafana, Prometheus, Mimir, and Loki run as Deployments
+- **DaemonSet**: Promtail runs as a DaemonSet (one pod per node) to collect logs
 
-### 1. Enable Docker API (Windows Only)
+## Differences from Docker Compose
 
-**Important:** Promtail needs access to the Docker API to collect container logs.
+### Service Discovery
+- **Docker Compose**: Uses service names (e.g., `http://prometheus:9090`)
+- **Kubernetes**: Uses DNS within namespace (e.g., `http://prometheus:9090` or `http://prometheus.lgtm.svc.cluster.local:9090`)
 
-1. Open **Docker Desktop**
-2. Go to **Settings** → **General**
-3. Enable: **"Expose daemon on tcp://localhost:2375 without TLS"**
-4. Click **Apply & Restart**
+### Promtail Log Collection
+- **Docker Compose**: Connects to Docker API at `tcp://host.docker.internal:2375`
+- **Kubernetes**: Runs as DaemonSet, mounts node's `/var/log` and `/var/lib/docker/containers`
 
-⚠️ This is safe for local development only.
+### Access to Services
+- **Grafana**: NodePort 30300 (access at `http://localhost:30300`)
+- **Prometheus**: NodePort 30090 (access at `http://localhost:30090`)
+- **Loki & Mimir**: ClusterIP only (internal access)
 
-### 2. Start the Stack
+### RBAC Permissions
+Prometheus and Promtail require ServiceAccounts with ClusterRole permissions to:
+- Discover Kubernetes nodes, pods, services, and endpoints
+- Access metrics endpoints
 
+## Deployment Instructions
+
+### 1. Create the namespace and ConfigMaps
 ```bash
-cd phase1
-docker-compose up -d
+kubectl apply -f namespace.yaml
+kubectl apply -f configmaps/
 ```
 
-### 3. Verify Containers are Running
-
+### 2. Deploy the services
 ```bash
-docker-compose ps
+kubectl apply -f grafana.yaml
+kubectl apply -f prometheus.yaml
+kubectl apply -f mimir.yaml
+kubectl apply -f loki.yaml
+kubectl apply -f promtail.yaml
 ```
 
-You should see all 5 services running.
+Or deploy everything at once:
+```bash
+kubectl apply -f namespace.yaml
+kubectl apply -f configmaps/
+kubectl apply -f .
+```
+
+### 3. Verify deployment
+```bash
+# Check all pods are running
+kubectl get pods -n lgtm
+
+# Check services
+kubectl get svc -n lgtm
+
+# Check logs if any pod has issues
+kubectl logs -n lgtm <pod-name>
+```
 
 ### 4. Access the UIs
+- **Grafana**: http://localhost:30300 (username: `admin`, password: `admin`)
+- **Prometheus**: http://localhost:30090
 
-- **Grafana**: http://localhost:3000 (admin/admin)
-- **Prometheus**: http://localhost:9090
-- **Loki**: http://localhost:3100/ready
+## Configuration Notes
 
-### 5. Configure Grafana Data Sources
+### Prometheus
+- Scrapes itself, Grafana, Loki, and Mimir
+- Auto-discovers Kubernetes pods with `prometheus.io/scrape: "true"` annotation
+- Sends metrics to Mimir for long-term storage with `X-Scope-OrgID: anonymous` header
+- 1-hour local retention
 
-In Grafana, go to **Connections** → **Add new connection**
+### Mimir
+- Single-tenant mode using `X-Scope-OrgID: anonymous`
+- Filesystem storage (using emptyDir - data lost on pod restart)
+- For production, replace emptyDir with PersistentVolumeClaim
 
-**Add Prometheus:**
-- URL: `http://prometheus:9090`
-- Click **Save & Test**
+### Loki
+- 7-day log retention
+- Filesystem storage (using emptyDir - data lost on pod restart)
+- For production, replace emptyDir with PersistentVolumeClaim
 
-**Add Mimir:**
-- Search for **Prometheus**
-- Name: `Mimir`
-- URL: `http://mimir:9009/prometheus`
-- Under **Custom HTTP Headers**:
-  - Header: `X-Scope-OrgID`
-  - Value: `anonymous`
-- Click **Save & Test**
+### Promtail
+- Runs as DaemonSet (one pod per node)
+- Collects logs from all Kubernetes pods
+- Automatically adds labels: namespace, pod, container
 
-**Add Loki:**
-- URL: `http://loki:3100`
-- Click **Save & Test**
+## Storage Considerations
 
-### 6. Test Queries
+**Current setup uses `emptyDir` volumes** which means:
+- ✅ Fast and simple for testing
+- ❌ Data is lost when pod restarts
+- ❌ Not suitable for production
 
-**In Prometheus/Mimir (switch to Code mode):**
-```promql
-up
+**For production**, replace `emptyDir` with `PersistentVolumeClaim`:
+
+```yaml
+volumes:
+  - name: prometheus-storage
+    persistentVolumeClaim:
+      claimName: prometheus-pvc
 ```
-Should show all services with `up=1`
 
-**In Loki:**
-```logql
-{container="loki"}
-```
-Should show logs from all containers
+## Cleanup
 
-## Configuration Files
-
-- `docker-compose.yml` - Service definitions
-- `prometheus.yaml` - Prometheus scrape config with remote_write to Mimir
-- `mimir.yaml` - Mimir storage configuration
-- `loki.yaml` - Loki log storage configuration
-- `promtail.yaml` - Log collection from Docker containers
-
-## Key Features
-
-✅ Prometheus → Mimir remote_write (with X-Scope-OrgID header)
-✅ Docker container log collection via Promtail
-✅ All services monitored (Prometheus, Grafana, Loki, Mimir)
-✅ 1-hour metrics retention in Prometheus, unlimited in Mimir
-✅ 7-day log retention in Loki
-
-## Troubleshooting
-
-**Logs not appearing in Loki?**
-- Verify Docker API is enabled (Step 1)
-- Check Promtail logs: `docker-compose logs promtail`
-
-**Mimir authentication errors?**
-- The `X-Scope-OrgID: anonymous` header is required
-- Already configured in `prometheus.yaml` remote_write section
-- Also needed when querying Mimir from Grafana
-
-**Grafana can't connect to data sources?**
-- Verify all containers are on the `lgtm` network
-- Use service names (`prometheus`, `loki`, `mimir`) not `localhost`
-
-## Clean Up
-
+To remove the entire stack:
 ```bash
-docker-compose down -v
+kubectl delete namespace lgtm
 ```
 
-The `-v` flag removes volumes (all data will be lost).
+This will delete all resources in the lgtm namespace.
 
----
+## Next Steps
 
-**Next:** Phase 2 adds Kafka, Airflow, and JMX monitoring
+- Configure Grafana data sources (same as Docker Compose setup)
+- Add persistent volumes for production use
+- Configure ingress for external access
+- Add resource limits based on your cluster capacity
+- Set up alerts and dashboards

@@ -1,43 +1,57 @@
-auth_enabled: false
-
-server:
-  http_listen_port: 3100
-  grpc_listen_port: 9096
-
-common:
-  path_prefix: /loki
-  storage:
-    filesystem:
-      chunks_directory: /loki/chunks
-      rules_directory: /loki/rules
-  replication_factor: 1
-  ring:
-    instance_addr: 127.0.0.1
-    kvstore:
-      store: inmemory
-
-# Updated schema for latest Loki
-schema_config:
-  configs:
-    - from: 2024-01-01
-      store: tsdb
-      object_store: filesystem
-      schema: v13
-      index:
-        prefix: index_
-        period: 24h
-
-# Disable structured metadata if you want to use older schema
-limits_config:
-  allow_structured_metadata: true
-  retention_period: 168h  # 7 days
-  reject_old_samples: true
-  reject_old_samples_max_age: 168h
-
-ruler:
-  alertmanager_url: http://localhost:9093
-
-# Table manager for retention
-table_manager:
-  retention_deletes_enabled: true
-  retention_period: 168h
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: lgtm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3100
+      targetPort: 3100
+      protocol: TCP
+      name: http
+  selector:
+    app: loki
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: lgtm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loki
+  template:
+    metadata:
+      labels:
+        app: loki
+    spec:
+      containers:
+        - name: loki
+          image: grafana/loki:latest
+          args:
+            - '-config.file=/etc/loki/loki.yaml'
+          ports:
+            - containerPort: 3100
+              name: http
+          volumeMounts:
+            - name: loki-config
+              mountPath: /etc/loki
+            - name: loki-storage
+              mountPath: /loki
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+      volumes:
+        - name: loki-config
+          configMap:
+            name: loki-config
+        - name: loki-storage
+          emptyDir: {}
