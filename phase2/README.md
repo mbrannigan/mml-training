@@ -59,12 +59,24 @@ zabbix-server-xxx    1/1  Running
 zabbix-web-xxx       1/1  Running
 ```
 
-## Service URLs (NodePort)
+## Access the UIs (kind cluster)
+
+> ⚠️ **kind does not route NodePort traffic to `localhost`.** Use `kubectl port-forward` to access UIs.
+
+```powershell
+# Zabbix Web UI
+Start-Job -ScriptBlock { kubectl port-forward -n lgtm deployment/zabbix-web 8080:8080 }
+
+# Airflow UI (use 8081 to avoid conflict with Zabbix on 8080)
+Start-Job -ScriptBlock { kubectl port-forward -n lgtm deployment/airflow 8081:8080 }
+```
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| Airflow UI | http://localhost:30808 | admin / admin |
-| Zabbix UI | http://localhost:30809 | Admin / zabbix |
+| Zabbix UI | http://localhost:8080 | Admin / zabbix |
+| Airflow UI | http://localhost:8081 | admin / admin |
+
+> 💡 Note the capital "A" in Zabbix's `Admin` — it's case-sensitive.
 
 ## Add Prometheus Scrape Jobs
 
