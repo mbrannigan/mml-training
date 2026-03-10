@@ -33,7 +33,8 @@ spec:
       containers:
         - name: airflow
           image: apache/airflow:2.8.0
-          command: ["standalone"]
+          command: ["airflow"]
+          args: ["standalone"]
           ports:
             - containerPort: 8080
               name: web
