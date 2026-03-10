@@ -75,7 +75,7 @@ Should show all services with `up=1`
 
 **In Loki:**
 ```logql
-{job="docker"}
+{container="loki"}
 ```
 Should show logs from all containers
 
