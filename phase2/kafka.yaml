@@ -11,10 +11,6 @@ spec:
       targetPort: 9092
       protocol: TCP
       name: broker
-    - port: 7071
-      targetPort: 7071
-      protocol: TCP
-      name: jmx-metrics
   selector:
     app: kafka
 ---
@@ -32,31 +28,13 @@ spec:
     metadata:
       labels:
         app: kafka
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "7071"
-        prometheus.io/path: "/metrics"
     spec:
-      initContainers:
-        - name: jmx-exporter-init
-          image: curlimages/curl:8.5.0
-          command:
-            - sh
-            - -c
-            - |
-              curl -sSL -o /jmx/jmx_prometheus_javaagent.jar \
-                https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/0.20.0/jmx_prometheus_javaagent-0.20.0.jar
-          volumeMounts:
-            - name: jmx-jar
-              mountPath: /jmx
       containers:
         - name: kafka
           image: confluentinc/cp-kafka:7.5.0
           ports:
             - containerPort: 9092
               name: broker
-            - containerPort: 7071
-              name: jmx-metrics
           env:
             - name: KAFKA_BROKER_ID
               value: "1"
@@ -64,20 +42,10 @@ spec:
               value: "zookeeper:2181"
             - name: KAFKA_ADVERTISED_LISTENERS
               value: "PLAINTEXT://kafka:9092"
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://0.0.0.0:9092"
             - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
               value: "1"
-            - name: KAFKA_JMX_PORT
-              value: "9999"
-            - name: KAFKA_JMX_HOSTNAME
-              value: "kafka"
-            # KAFKA_OPTS is the correct env var for cp-kafka javaagent flags
-            - name: KAFKA_OPTS
-              value: "-javaagent:/jmx/jmx_prometheus_javaagent.jar=7071:/etc/jmx-exporter/config.yml"
-          volumeMounts:
-            - name: jmx-jar
-              mountPath: /jmx
-            - name: jmx-config
-              mountPath: /etc/jmx-exporter
           resources:
             requests:
               memory: "512Mi"
@@ -85,9 +53,3 @@ spec:
             limits:
               memory: "1Gi"
               cpu: "1000m"
-      volumes:
-        - name: jmx-jar
-          emptyDir: {}
-        - name: jmx-config
-          configMap:
-            name: kafka-jmx-config
