@@ -29,6 +29,10 @@ spec:
       labels:
         app: kafka
     spec:
+      # K8s auto-injects <SERVICENAME>_PORT env vars for every service in the
+      # namespace. cp-kafka's entrypoint exits 1 if KAFKA_PORT is set (deprecated).
+      # enableServiceLinks=false disables that injection.
+      enableServiceLinks: false
       containers:
         - name: kafka
           image: confluentinc/cp-kafka:7.5.0
