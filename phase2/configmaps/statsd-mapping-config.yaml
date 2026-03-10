@@ -28,7 +28,9 @@ data:
         labels:
           dag_id: "$1"
 
-      - match: "airflow.task_instance_created-*"
+      # Use regex match_type for metrics with hyphens (glob * doesn't match hyphens)
+      - match: "airflow\.task_instance_created-(.*)"
+        match_type: regex
         name: "airflow_task_instance_created"
         labels:
           operator: "$1"
