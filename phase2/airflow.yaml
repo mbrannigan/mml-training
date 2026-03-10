@@ -47,8 +47,9 @@ spec:
               value: "9125"
             - name: AIRFLOW__METRICS__STATSD_PREFIX
               value: "airflow"
+            # SequentialExecutor is the only executor compatible with SQLite
             - name: AIRFLOW__CORE__EXECUTOR
-              value: "LocalExecutor"
+              value: "SequentialExecutor"
             - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
               value: "sqlite:////opt/airflow/airflow.db"
             - name: _AIRFLOW_DB_MIGRATE
