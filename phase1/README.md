@@ -1,33 +1,56 @@
-# Kubernetes Manifests for LGTM Stack
+# Phase 1: Core LGTM Stack
 
-This directory contains Kubernetes manifests to deploy the LGTM (Loki, Grafana, Tempo, Mimir) observability stack on Kubernetes.
+Deploys Grafana, Prometheus, Mimir, Loki, Promtail, and Node Exporter to a kind Kubernetes cluster in the `lgtm` namespace.
 
-## Overview
+---
 
-The Kubernetes deployment mirrors the Docker Compose setup but adapts it for native Kubernetes operation:
+## Prerequisites
 
-- **Namespace**: All resources are deployed in the `lgtm` namespace
-- **ConfigMaps**: Configuration files are stored as ConfigMaps
-- **Services**: Each component has a Kubernetes Service for service discovery
-- **Deployments**: Grafana, Prometheus, Mimir, and Loki run as Deployments
-- **DaemonSet**: Promtail runs as a DaemonSet (one pod per node) to collect logs
+- Docker Desktop running with kind cluster active
+- `kubectl` configured and pointing at the kind cluster
+- At least **8GB RAM** allocated to Docker Desktop
 
-## Differences from Docker Compose
+Verify your cluster is ready:
+```powershell
+kubectl get nodes
+# Should show 1 control-plane + 3 workers, all Ready
+```
 
-### Service Discovery
-- **Docker Compose**: Uses service names (e.g., `http://prometheus:9090`)
-- **Kubernetes**: Uses DNS within namespace (e.g., `http://prometheus:9090` or `http://prometheus.lgtm.svc.cluster.local:9090`)
+---
 
-### Promtail Log Collection
-- **Docker Compose**: Connects to Docker API at `tcp://host.docker.internal:2375`
-- **Kubernetes**: Runs as DaemonSet, mounts node's `/var/log` and `/var/lib/docker/containers`
-
-### Access to Services (kind cluster)
-
-> ⚠️ **kind does not route NodePort traffic to `localhost`.** Use `kubectl port-forward` to access UIs.
+## Deploy
 
 ```powershell
-# Run each in a separate PowerShell background job
+cd C:\mml-lab\mml-training\phase1
+
+kubectl apply -f namespace.yaml
+kubectl apply -f configmaps/
+kubectl apply -f .
+```
+
+### Verify
+
+```powershell
+kubectl get pods -n lgtm -w
+```
+
+Expected pods (all `1/1 Running`):
+```
+grafana-xxx           1/1  Running
+prometheus-xxx        1/1  Running
+mimir-xxx             1/1  Running
+loki-xxx              1/1  Running
+promtail-xxx          1/1  Running   # DaemonSet - one per node
+node-exporter-xxx     1/1  Running   # DaemonSet - one per node
+```
+
+---
+
+## Access the UIs
+
+> ⚠️ **kind does not route NodePort traffic to localhost.** Use `kubectl port-forward`.
+
+```powershell
 Start-Job -ScriptBlock { kubectl port-forward -n lgtm deployment/grafana 3000:3000 }
 Start-Job -ScriptBlock { kubectl port-forward -n lgtm deployment/prometheus 9090:9090 }
 ```
@@ -37,107 +60,108 @@ Start-Job -ScriptBlock { kubectl port-forward -n lgtm deployment/prometheus 9090
 | Grafana | http://localhost:3000 | admin / admin |
 | Prometheus | http://localhost:9090 | — |
 
-Loki and Mimir are ClusterIP only (internal access, no UI).
+Loki and Mimir are ClusterIP only (no UI).
 
-### RBAC Permissions
-Prometheus and Promtail require ServiceAccounts with ClusterRole permissions to:
-- Discover Kubernetes nodes, pods, services, and endpoints
-- Access metrics endpoints
-
-## Deployment Instructions
-
-### 1. Create the namespace and ConfigMaps
+**Stop port forwards when done:**
 ```powershell
-kubectl apply -f namespace.yaml
-kubectl apply -f configmaps/
+Get-Job | Stop-Job; Get-Job | Remove-Job
 ```
 
-### 2. Deploy the services
-```powershell
-kubectl apply -f grafana.yaml
-kubectl apply -f prometheus.yaml
-kubectl apply -f mimir.yaml
-kubectl apply -f loki.yaml
-kubectl apply -f promtail.yaml
+---
+
+## Configure Grafana Data Sources
+
+In Grafana → Connections → Add new connection:
+
+**Prometheus:**
+- Type: `Prometheus`
+- URL: `http://prometheus:9090`
+- Save & Test
+
+**Mimir:**
+- Type: `Prometheus`
+- Name: `Mimir`
+- URL: `http://mimir:9009/prometheus`
+- Custom HTTP Headers: `X-Scope-OrgID` = `anonymous`
+- Save & Test
+
+**Loki:**
+- Type: `Loki`
+- URL: `http://loki:3100`
+- Save & Test
+
+---
+
+## Verify Metrics & Logs
+
+In Grafana → Explore → Prometheus (Code mode):
+
+```promql
+# All scrape targets up
+up
+
+# Pod CPU usage
+sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="lgtm"}[5m]))
+
+# Node CPU utilization
+100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
 ```
 
-Or deploy everything at once:
-```powershell
-kubectl apply -f namespace.yaml
-kubectl apply -f configmaps/
-kubectl apply -f .
+In Grafana → Explore → Loki:
+
+```logql
+# All lgtm namespace logs
+{namespace="lgtm"}
+
+# Errors only
+{namespace="lgtm"} |= "error"
 ```
 
-### 3. Verify deployment
+---
+
+## Troubleshooting
+
+**Pod stuck in Pending or CrashLoopBackOff:**
 ```powershell
-# Check all pods are running
-kubectl get pods -n lgtm
-
-# Check services
-kubectl get svc -n lgtm
-
-# Check logs if any pod has issues
-kubectl logs -n lgtm <pod-name>
+kubectl describe pod -n lgtm <pod-name>
+kubectl logs -n lgtm <pod-name> --previous
 ```
 
-### 4. Access the UIs
+**No logs in Loki:** Check Promtail is tailing log files:
+```powershell
+kubectl logs -n lgtm -l app=promtail --tail=50
+# Look for: msg="tail routine: started"
+```
+See [DEBUG-LOKI.md](./DEBUG-LOKI.md) for detailed Loki troubleshooting.
 
-See port-forward commands above. Once forwarding is active:
-- **Grafana**: http://localhost:3000 (username: `admin`, password: `admin`)
-- **Prometheus**: http://localhost:9090
+**Grafana data source "Bad Gateway":** Confirm service names match — use short names (`http://prometheus:9090`), not FQDN. Grafana resolves service names within the `lgtm` namespace automatically.
+
+**Port-forward drops:** Normal when pods restart. Re-run the `Start-Job` commands.
+
+---
 
 ## Configuration Notes
 
-### Prometheus
-- Scrapes itself, Grafana, Loki, and Mimir
-- Auto-discovers Kubernetes pods with `prometheus.io/scrape: "true"` annotation
-- Sends metrics to Mimir for long-term storage with `X-Scope-OrgID: anonymous` header
-- 1-hour local retention
+- **Prometheus:** Scrapes all services in `lgtm` namespace, remote-writes to Mimir, 1-hour local retention
+- **Mimir:** Single-tenant mode (`X-Scope-OrgID: anonymous`), filesystem storage via `emptyDir`
+- **Loki:** 7-day log retention, filesystem storage via `emptyDir`
+- **Promtail:** DaemonSet, auto-collects logs from all pods, adds `namespace`/`pod`/`container` labels
+- **Node Exporter:** DaemonSet, exposes host-level CPU/memory/disk/network metrics
 
-### Mimir
-- Single-tenant mode using `X-Scope-OrgID: anonymous`
-- Filesystem storage (using emptyDir - data lost on pod restart)
-- For production, replace emptyDir with PersistentVolumeClaim
+> ⚠️ All storage uses `emptyDir` — data is lost on pod restart. Fine for lab use.
 
-### Loki
-- 7-day log retention
-- Filesystem storage (using emptyDir - data lost on pod restart)
-- For production, replace emptyDir with PersistentVolumeClaim
-
-### Promtail
-- Runs as DaemonSet (one pod per node)
-- Collects logs from all Kubernetes pods
-- Automatically adds labels: namespace, pod, container
-
-## Storage Considerations
-
-**Current setup uses `emptyDir` volumes** which means:
-- ✅ Fast and simple for testing
-- ❌ Data is lost when pod restarts
-- ❌ Not suitable for production
-
-**For production**, replace `emptyDir` with `PersistentVolumeClaim`:
-
-```yaml
-volumes:
-  - name: prometheus-storage
-    persistentVolumeClaim:
-      claimName: prometheus-pvc
-```
+---
 
 ## Cleanup
 
-To remove the entire stack:
 ```powershell
 kubectl delete namespace lgtm
 ```
 
-This will delete all resources in the lgtm namespace.
+Deletes all Phase 1 and Phase 2 resources (they share the `lgtm` namespace).
+
+---
 
 ## Next Steps
 
-- Configure Grafana data sources
-- Deploy Phase 2 (Kafka, Airflow, Zabbix) from `../phase2/`
-- Add persistent volumes for production use
-- Configure ingress for external access
-- Set up alerts and dashboards
+Once all pods are `1/1 Running`, proceed to [Phase 2](../phase2/README.md) to deploy Kafka, Airflow, and Zabbix.
