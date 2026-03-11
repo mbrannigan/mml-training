@@ -74,16 +74,20 @@ Start-Job -ScriptBlock { kubectl port-forward -n lgtm deployment/airflow 8081:80
 | Service | URL | Credentials |
 |---------|-----|-------------|
 | Zabbix UI | http://localhost:8080 | Admin / zabbix (capital A) |
-| Airflow UI | http://localhost:8081 | admin / admin |
+| Airflow UI | http://localhost:8081 | admin / admin \* |
 
-> 💡 Airflow `standalone` takes 2–3 minutes to initialize the DB and create the user on first start.
-> If `admin`/`admin` is rejected, wait for the pod logs to show `standalone | Airflow is ready` then try again.
->
-> If it still doesn't work, Airflow may have generated a random password. Look it up with:
-> ```powershell
-> kubectl logs -n lgtm deployment/airflow | Select-String -Pattern "password"
-> ```
-> You'll see a line like: `standalone | Login with username: admin  password: Ab3xK9mP`
+\* Airflow `standalone` takes 2–3 minutes to initialize on first start. Wait for `1/1 Running` then wait
+for the ready signal before logging in:
+```powershell
+kubectl logs -n lgtm deployment/airflow --follow
+# Wait for: standalone | Airflow is ready
+```
+
+If `admin`/`admin` is still rejected, look up the generated password:
+```powershell
+kubectl logs -n lgtm deployment/airflow | Select-String -Pattern "password"
+# standalone | Login with username: admin  password: Ab3xK9mP
+```
 
 ## Add Prometheus Scrape Jobs
 
