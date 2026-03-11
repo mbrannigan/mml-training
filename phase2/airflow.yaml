@@ -60,6 +60,12 @@ spec:
               value: "admin"
             - name: _AIRFLOW_WWW_USER_PASSWORD
               value: "admin"
+            # Force FlaskAppBuilder to use the password above instead of generating one.
+            # Without this, standalone ignores _AIRFLOW_WWW_USER_PASSWORD on first init.
+            - name: AIRFLOW__WEBSERVER__SECRET_KEY
+              value: "mml-lab-secret-key"
+            - name: _AIRFLOW_WWW_USER_ROLE
+              value: "Admin"
           resources:
             requests:
               memory: "1Gi"

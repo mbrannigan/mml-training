@@ -7,7 +7,7 @@ This phase adds a data platform stack and traditional host monitoring to the LGT
 | Manifest | Services Deployed | Metrics Port |
 |----------|------------------|--------------|
 | `zookeeper.yaml` | ZooKeeper | - |
-| `kafka.yaml` | Kafka + JMX Exporter (init container) | 7071 |
+| `kafka.yaml` | Kafka | 9092 |
 | `statsd-exporter.yaml` | StatsD Exporter | 9102 |
 | `airflow.yaml` | Airflow standalone | 8080 (UI) |
 | `zabbix.yaml` | Zabbix DB, Server, Web, Agent (DaemonSet) | 8080 (UI) |
@@ -47,7 +47,7 @@ kubectl apply -f configmaps/ && kubectl apply -f .
 kubectl get pods -n lgtm
 ```
 
-Expected new pods:
+Expected new pods (all `1/1 Running`):
 ```
 airflow-xxx          1/1  Running
 kafka-xxx            1/1  Running
@@ -61,7 +61,7 @@ zabbix-web-xxx       1/1  Running
 
 ## Access the UIs (kind cluster)
 
-> ⚠️ **kind does not route NodePort traffic to `localhost`.** Use `kubectl port-forward` to access UIs.
+> ⚠️ **kind does not route NodePort traffic to `localhost`.** Use `kubectl port-forward`.
 
 ```powershell
 # Zabbix Web UI
@@ -73,10 +73,17 @@ Start-Job -ScriptBlock { kubectl port-forward -n lgtm deployment/airflow 8081:80
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| Zabbix UI | http://localhost:8080 | Admin / zabbix |
+| Zabbix UI | http://localhost:8080 | Admin / zabbix (capital A) |
 | Airflow UI | http://localhost:8081 | admin / admin |
 
-> 💡 Note the capital "A" in Zabbix's `Admin` — it's case-sensitive.
+> 💡 Airflow `standalone` takes 2–3 minutes to initialize the DB and create the user on first start.
+> If `admin`/`admin` is rejected, wait for the pod logs to show `standalone | Airflow is ready` then try again.
+>
+> If it still doesn't work, Airflow may have generated a random password. Look it up with:
+> ```powershell
+> kubectl logs -n lgtm deployment/airflow | Select-String -Pattern "password"
+> ```
+> You'll see a line like: `standalone | Login with username: admin  password: Ab3xK9mP`
 
 ## Add Prometheus Scrape Jobs
 
@@ -107,7 +114,6 @@ airflow_scheduler_tasks_running
 ```
 phase2/
 +-- README.md
-+-- namespace.yaml
 +-- zookeeper.yaml
 +-- kafka.yaml
 +-- statsd-exporter.yaml
@@ -127,3 +133,7 @@ kubectl delete -f configmaps/
 ```
 
 > This does NOT affect Phase 1 — components share the `lgtm` namespace but are managed by separate manifests.
+
+## Next Steps
+
+Once all pods are `1/1 Running`, proceed to [Phase 3](../phase3/README.md) to deploy AWS services via LocalStack.
