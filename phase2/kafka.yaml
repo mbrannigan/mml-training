@@ -11,6 +11,10 @@ spec:
       targetPort: 9092
       protocol: TCP
       name: broker
+    - port: 7071
+      targetPort: 7071
+      protocol: TCP
+      name: jmx-metrics
   selector:
     app: kafka
 ---
@@ -33,12 +37,26 @@ spec:
       # namespace. cp-kafka's entrypoint exits 1 if KAFKA_PORT is set (deprecated).
       # enableServiceLinks=false disables that injection.
       enableServiceLinks: false
+      initContainers:
+        - name: jmx-exporter-init
+          image: curlimages/curl:latest
+          command:
+            - sh
+            - -c
+            - |
+              curl -sSL https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/0.20.0/jmx_prometheus_javaagent-0.20.0.jar \
+                -o /jmx/jmx_prometheus_javaagent.jar
+          volumeMounts:
+            - name: jmx-jar
+              mountPath: /jmx
       containers:
         - name: kafka
           image: confluentinc/cp-kafka:7.5.0
           ports:
             - containerPort: 9092
               name: broker
+            - containerPort: 7071
+              name: jmx-metrics
           env:
             - name: KAFKA_BROKER_ID
               value: "1"
@@ -54,6 +72,14 @@ spec:
               value: "1"
             - name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS
               value: "0"
+            # JMX Exporter Java agent — runs inside the Kafka JVM, exposes metrics on port 7071
+            - name: KAFKA_OPTS
+              value: "-javaagent:/jmx/jmx_prometheus_javaagent.jar=7071:/etc/jmx/config.yml"
+          volumeMounts:
+            - name: jmx-jar
+              mountPath: /jmx
+            - name: jmx-config
+              mountPath: /etc/jmx
           resources:
             requests:
               memory: "512Mi"
@@ -61,3 +87,9 @@ spec:
             limits:
               memory: "1Gi"
               cpu: "1000m"
+      volumes:
+        - name: jmx-jar
+          emptyDir: {}
+        - name: jmx-config
+          configMap:
+            name: kafka-jmx-config
