@@ -1,0 +1,198 @@
+---
+# Zabbix PostgreSQL Database
+apiVersion: v1
+kind: Service
+metadata:
+  name: zabbix-db
+  namespace: lgtm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgres
+  selector:
+    app: zabbix-db
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zabbix-db
+  namespace: lgtm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zabbix-db
+  template:
+    metadata:
+      labels:
+        app: zabbix-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: zabbix
+            - name: POSTGRES_PASSWORD
+              value: zabbix
+            - name: POSTGRES_DB
+              value: zabbix
+          volumeMounts:
+            - name: zabbix-db-storage
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      volumes:
+        - name: zabbix-db-storage
+          emptyDir: {}
+---
+# Zabbix Server
+apiVersion: v1
+kind: Service
+metadata:
+  name: zabbix-server
+  namespace: lgtm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 10051
+      targetPort: 10051
+      name: server
+  selector:
+    app: zabbix-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zabbix-server
+  namespace: lgtm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zabbix-server
+  template:
+    metadata:
+      labels:
+        app: zabbix-server
+    spec:
+      containers:
+        - name: zabbix-server
+          image: zabbix/zabbix-server-pgsql:alpine-6.4-latest
+          ports:
+            - containerPort: 10051
+              name: server
+          env:
+            - name: DB_SERVER_HOST
+              value: zabbix-db
+            - name: POSTGRES_USER
+              value: zabbix
+            - name: POSTGRES_PASSWORD
+              value: zabbix
+            - name: POSTGRES_DB
+              value: zabbix
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+# Zabbix Web UI
+apiVersion: v1
+kind: Service
+metadata:
+  name: zabbix-web
+  namespace: lgtm
+spec:
+  type: NodePort
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30809
+      name: web
+  selector:
+    app: zabbix-web
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zabbix-web
+  namespace: lgtm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zabbix-web
+  template:
+    metadata:
+      labels:
+        app: zabbix-web
+    spec:
+      containers:
+        - name: zabbix-web
+          image: zabbix/zabbix-web-nginx-pgsql:alpine-6.4-latest
+          ports:
+            - containerPort: 8080
+              name: web
+          env:
+            - name: ZBX_SERVER_HOST
+              value: zabbix-server
+            - name: DB_SERVER_HOST
+              value: zabbix-db
+            - name: POSTGRES_USER
+              value: zabbix
+            - name: POSTGRES_PASSWORD
+              value: zabbix
+            - name: POSTGRES_DB
+              value: zabbix
+            - name: PHP_TZ
+              value: America/Chicago
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+# Zabbix Agent (DaemonSet - runs on every node)
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: zabbix-agent
+  namespace: lgtm
+spec:
+  selector:
+    matchLabels:
+      app: zabbix-agent
+  template:
+    metadata:
+      labels:
+        app: zabbix-agent
+    spec:
+      containers:
+        - name: zabbix-agent
+          image: zabbix/zabbix-agent2:alpine-6.4-latest
+          env:
+            - name: ZBX_SERVER_HOST
+              value: zabbix-server
+            - name: ZBX_HOSTNAME
+              value: lab-host
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "128Mi"
+              cpu: "250m"
