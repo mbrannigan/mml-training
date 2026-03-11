@@ -7,7 +7,7 @@ This phase adds a data platform stack and traditional host monitoring to the LGT
 | Manifest | Services Deployed | Metrics Port |
 |----------|------------------|--------------|
 | `zookeeper.yaml` | ZooKeeper | - |
-| `kafka.yaml` | Kafka | 9092 |
+| `kafka.yaml` | Kafka + JMX Exporter | 9092 (broker), 7071 (metrics) |
 | `statsd-exporter.yaml` | StatsD Exporter | 9102 |
 | `airflow.yaml` | Airflow standalone | 8080 (UI) |
 | `zabbix.yaml` | Zabbix DB, Server, Web, Agent (DaemonSet) | 8080 (UI) |
@@ -50,7 +50,7 @@ kubectl get pods -n lgtm
 Expected new pods (all `1/1 Running`):
 ```
 airflow-xxx          1/1  Running
-kafka-xxx            1/1  Running
+kafka-xxx            1/1  Running   # goes through Init:0/1 first (JMX jar download)
 statsd-exporter-xxx  1/1  Running
 zookeeper-xxx        1/1  Running
 zabbix-agent-xxx     1/1  Running   # DaemonSet
@@ -58,6 +58,8 @@ zabbix-db-xxx        1/1  Running
 zabbix-server-xxx    1/1  Running
 zabbix-web-xxx       1/1  Running
 ```
+
+> Kafka pod will show `Init:0/1` for ~30 seconds while the JMX Exporter JAR downloads. This is normal.
 
 ## Access the UIs (kind cluster)
 
@@ -91,27 +93,52 @@ kubectl logs -n lgtm deployment/airflow | Select-String -Pattern "password"
 
 ## Add Prometheus Scrape Jobs
 
-See `configmaps/prometheus-scrape-jobs.yaml` for the scrape job definitions. Add them to the Phase 1 Prometheus ConfigMap:
+The Phase 2 scrape jobs (kafka, airflow, zabbix-web) are already included in
+`phase1/configmaps/prometheus-config.yaml`. Apply and restart Prometheus to activate them:
 
 ```powershell
-kubectl edit configmap prometheus-config -n lgtm
-# Add the three scrape_configs jobs from configmaps/prometheus-scrape-jobs.yaml
-
+kubectl apply -f ../phase1/configmaps/prometheus-config.yaml
 kubectl rollout restart deployment/prometheus -n lgtm
 ```
 
 ## Verify Metrics
 
+Run these queries in Prometheus (http://localhost:9090) to confirm each component is working.
+All queries below should return data immediately after deploy — no DAG runs or manual steps needed.
+
+### Scrape targets up
+
+Check the Prometheus targets page first: **Status → Targets**
+- `kafka` → UP
+- `airflow` → UP
+
+### Kafka — confirms JMX Exporter is running inside the Kafka JVM
+
 ```promql
-# Kafka broker up
-up{job="kafka"}
-
-# Airflow scheduler
-up{job="airflow"}
-
-# Airflow tasks running
-airflow_scheduler_tasks_running
+jvm_heap_memory_used_bytes{job="kafka"}
 ```
+
+Expected: a number in the hundreds of millions (bytes). If this returns no data, the JMX agent
+did not attach — check `kubectl logs -n lgtm deployment/kafka`.
+
+### Airflow — confirms StatsD bridge is receiving scheduler heartbeats
+
+```promql
+airflow_scheduler_heartbeat{job="airflow"}
+```
+
+Expected: a counter that increments every few seconds. This is always emitted by the scheduler
+regardless of whether any DAGs are running.
+
+### Zabbix — confirm agent is running (pod-level check only)
+
+```promql
+kube_pod_status_ready{namespace="lgtm", pod=~"zabbix.*"}
+```
+
+> Note: Zabbix does not expose Prometheus metrics natively. The above confirms pods are healthy
+> via kube-state-metrics. The `zabbix-web` scrape job will show DOWN in Prometheus targets — this
+> is expected and can be ignored.
 
 ## Directory Structure
 
